@@ -53,3 +53,42 @@ options:
   -b            open results in browser
 
 ```
+
+## Example Output
+```
+shawnevans@pop-os:~/tools/wappsnap$ cat flat_file.txt | cut -d '/' -f 3
+www.google.com
+www.nopsec.com
+www.reddit.com
+www.amazon.com
+fake.effing.wingledong.com
+github.com
+shawnevans@pop-os:~/tools/wappsnap$ cat flat_file.txt | cut -d '/' -f 3 > hosts.txt
+shawnevans@pop-os:~/tools/wappsnap$ sudo nmap -sS -T4 -p 80,443,8443,8080,8081,9090,8090,8888,8088 -iL hosts.txt -oX hosts.xml
+shawnevans@pop-os:~/tools/wappsnap$ ./wappsnap.py -x hosts.xml 
+[*] Parsed targets:
+http://www.google.com:80
+https://www.google.com:443
+http://www.nopsec.com:80
+https://www.nopsec.com:443
+http://www.nopsec.com:8080
+https://www.nopsec.com:8443
+http://www.reddit.com:80
+https://www.reddit.com:443
+http://www.amazon.com:80
+https://www.amazon.com:443
+http://github.com:80
+https://github.com:443
+[*] Analyzing 12 targets.
+[*] Storing data in '250605_151316_0787/'
+[*] Starting a capture with 7 processes to complete 12 tasks.
+[!] Error: connection timeout on http://www.nopsec.com:8080
+[!] Error: connection timeout on https://www.nopsec.com:8443
+[========================================] 100%
+[*] Finished 10 of 12 with 2 errors in 26.02s
+
+HTML Report:
+
+![Sample HTML Report](images/example.png)
+
+```
