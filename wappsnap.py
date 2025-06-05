@@ -174,8 +174,8 @@ def process_target(target, directory, timeout, shared_counter, error_counter):
     driver.set_page_load_timeout(timeout)
     try:
         # Displays the target name to the right of the progress bar
-        imgname = '{}.png'.format(re.sub(' ','',target))
-        srcname = '{}.txt'.format(re.sub(' ','',target))
+        imgname = '{}.png'.format(re.sub('\W','',target))
+        srcname = '{}.txt'.format(re.sub('\W','',target))
         imgpath = '{}/{}'.format(directory, imgname)
         srcpath = '{}/{}'.format(directory, srcname)
         target_data = {}
