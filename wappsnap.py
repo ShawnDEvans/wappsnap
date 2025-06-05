@@ -20,6 +20,8 @@ import warnings
 
 # Option A: Ignore a specific warning type
 # This will ignore all SyntaxWarnings
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 FIREFOX_PATH = '/usr/bin/firefox'
