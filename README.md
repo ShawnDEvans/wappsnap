@@ -86,9 +86,9 @@ https://github.com:443
 [!] Error: connection timeout on https://www.nopsec.com:8443
 [========================================] 100%
 [*] Finished 10 of 12 with 2 errors in 26.02s
+```
 
-HTML Report:
+## HTML Report:
 
 ![Sample HTML Report](images/example.png)
 
-```
