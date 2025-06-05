@@ -123,7 +123,8 @@ def main():
                 for target in targets
             ]
             num_tasks = len(target_processing_data)
-            num_processes = multiprocessing.cpu_count()
+            # For now this just takes the # of CPUs and subtracts
+            num_processes = multiprocessing.cpu_count()-1 if multiprocessing.cpu_count()-1 > 0 else multiprocessing.cpu_count()
             print(f"[*] Starting a capture with {num_processes} processes to complete {num_tasks} tasks.")
             with multiprocessing.Pool(processes=num_processes) as capture_pool:
                 async_result = capture_pool.starmap_async(process_target, target_processing_data)
@@ -142,7 +143,7 @@ def main():
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         line_number = traceback.extract_tb(exc_traceback)[-1][1]
-        print(f"[!] Error: {e} on line {line_number}")
+        print(f"[!] Error: {e} of type {exc_type} on line {line_number}")
         print('[!] %s' % (e.__str__()))
 
     # build the report and exit
