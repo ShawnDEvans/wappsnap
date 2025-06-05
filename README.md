@@ -1,6 +1,6 @@
 # WappSnap
 
-WebSnapp is a handy web application screen shot utility. It can ingest Nessus/Nmap XML, flat text files, or a single URL on the command line. 
+WappSnap is a handy web application screen shot utility. It can ingest Nessus/Nmap XML, flat text files, or a single URL on the command line. 
 
 
 > **Note**
