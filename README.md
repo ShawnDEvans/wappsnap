@@ -24,6 +24,12 @@ $ ./wappsnap.py -h
 - Flat text files
 - Generates an HTML report
 
+## Plans:
+- Add a JSON output option 
+- Add option to control page the load wait time (not the same as timeout)
+- Add setting to control the number of threads
+- Proper threading vs multiprocessing.Pool()
+
 ## Help
 ```
 $ ./wappsnap.py -h
