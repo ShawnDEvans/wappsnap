@@ -16,6 +16,11 @@ from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from webdriver_manager.firefox import GeckoDriverManager
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.common.exceptions import *
+import warnings
+
+# Option A: Ignore a specific warning type
+# This will ignore all SyntaxWarnings
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 FIREFOX_PATH = '/usr/bin/firefox'
 WINDOW_SIZE = "1024,768"
@@ -174,8 +179,8 @@ def process_target(target, directory, timeout, shared_counter, error_counter):
     driver.set_page_load_timeout(timeout)
     try:
         # Displays the target name to the right of the progress bar
-        imgname = '{}.png'.format(re.sub('\W','',target))
-        srcname = '{}.txt'.format(re.sub('\W','',target))
+        imgname = '{}.png'.format(re.sub(r'\W','',target))
+        srcname = '{}.txt'.format(re.sub(r'\W','',target))
         imgpath = '{}/{}'.format(directory, imgname)
         srcpath = '{}/{}'.format(directory, srcname)
         target_data = {}
