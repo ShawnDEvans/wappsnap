@@ -4,7 +4,7 @@ WebSnapp is a handy web application screen shot utility. It can ingest Nessus/Nm
 
 
 > **Note**
-> WappSnap is inspired by and based upon PeepingTom. I relied on PeepingTom for many years. Out of necessicity I had had to make my own updates to it to keep it working for me. Overtime these changes ultimately resulted in a tool that deserved it's own repo. It would not be here without PeepingTom.
+> WappSnap was inspired by and based upon PeepingTom. I relied on PeepingTom for many years. Out of necessicity I had to make my own updates to keep it working. Over time these changes resulted in a tool that deserved its own repo. It would not be here without PeepingTom.
 >
 > OG: https://bitbucket.org/LaNMaSteR53/peepingtom/
 > Thanks @LaNMaSteR53
