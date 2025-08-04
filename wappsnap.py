@@ -49,7 +49,8 @@ def main():
     parser.add_argument('-x', help='xml input mode. path to Nessus/Nmap XML file.', dest='xml_file', action='store')
     parser.add_argument('-u', help='single input mode. path to target, remote URL or local path.', dest='target', action='store')
     parser.add_argument('-o', help='output directory', dest='output', action='store')
-    parser.add_argument('-t', help='socket timeout in seconds. default is 6 seconds.', dest='timeout', type=int, action='store')
+    parser.add_argument('--timeout', help='socket timeout in seconds. default is 6 seconds.', default=6, dest='timeout', type=int, action='store')
+    parser.add_argument('--threads', help='Number of CPUs to use, default is 1.', dest='threads', default=1, type=int, action='store')
     parser.add_argument('--ip-only', help='use the IP address and ignore the hostname in an Nmap XML file', dest='iponly', default=False, action='store_true')
     parser.add_argument('-v', help='verbose mode', dest='verbose', action='store_true', default=False)
     parser.add_argument('-b', help='open results in browser', dest='browser', action='store_true', default=False)
@@ -124,7 +125,11 @@ def main():
             ]
             num_tasks = len(target_processing_data)
             # For now this just takes the # of CPUs and subtracts
-            num_processes = multiprocessing.cpu_count()-1 if multiprocessing.cpu_count()-1 > 0 else multiprocessing.cpu_count()
+            if opts.threads >= 1 and opts.threads <= multiprocessing.cpu_count():
+                num_processes = opts.threads
+            else:
+                print('[!] Invalid thread count, setting to half the avaialbe CPUs')
+                num_processes = int(multiprocessing.cpu_count()/2)
             print(f"[*] Starting a capture with {num_processes} processes to complete {num_tasks} tasks.")
             with multiprocessing.Pool(processes=num_processes) as capture_pool:
                 async_result = capture_pool.starmap_async(process_target, target_processing_data)
@@ -192,7 +197,7 @@ def process_target(target, directory, timeout, shared_counter, error_counter):
         target_data['imgpath'] = imgname
         target_data['srcpath'] = srcname
         driver.get(target)
-        target_data['headers'] = get_headers(target)
+        target_data['headers'] = get_headers(target, timeout)
         time.sleep(.5)
         htmlsrc = driver.page_source
         with open(srcpath, 'w') as f: f.write(htmlsrc)
@@ -207,7 +212,7 @@ def process_target(target, directory, timeout, shared_counter, error_counter):
     except WebDriverException as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         line_number = traceback.extract_tb(exc_traceback)[-1][1]
-        print('[!]', f'Error: unkown error while connecting to {target}')
+        print('[!]', f'Error: unkown connection error on {target}')
         error_counter.value += 1
         return target_data
 
@@ -263,13 +268,13 @@ def guessProto(output):
         return "https"
     return "http"
 
-def get_headers(url):
+def get_headers(url, timeout=6):
     try:
         # Send an HTTP GET request to the specified URL
         # The 'timeout' parameter is good practice to prevent the request from hanging indefinitely.
         headers = {}
         headers['User-Agent'] = 'Mozilla/5.0 (X11; Linux x86_64; rv:138.0) Gecko/20100101 Firefox/138.0'
-        response = requests.get(url, timeout=10, verify=False, headers=headers)
+        response = requests.get(url, timeout=timeout, verify=False, headers=headers)
 
         # Raise an HTTPError for bad responses (4xx or 5xx)
         # response.raise_for_status()
@@ -280,11 +285,11 @@ def get_headers(url):
         return '\n'.join(list(map(lambda item: f'{item[0]}: {item[1]}' if item else '', headers.items())))
 
     except requests.exceptions.HTTPError as errh:
-        print('[!]', f"HTTP Error: {errh}")
+        print('[!]', f"Error: {errh}")
     except requests.exceptions.ConnectionError as errc:
         print('[!]', f"Error Connecting: {errc}")
     except requests.exceptions.Timeout as errt:
-        print('[!]', f"Timeout Error: {errt}")
+        print('[!]', f"Error: {errt}")
     except requests.exceptions.RequestException as err:
         print('[!]', f"An unexpected error occurred: {err}")
     return 'Error'
