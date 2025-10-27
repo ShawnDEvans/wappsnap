@@ -9,6 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.common.proxy import Proxy, ProxyType # Required for Selenium Proxy
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 import urllib3
 # --- Warning Suppression ---
 # Disable the InsecureRequestWarning that occurs when using verify=False over HTTPS
@@ -16,7 +19,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- Configuration ---
 REPORTS_DIR = "reports"
-MAX_THREADS = 8
+MAX_THREADS = 20
 GLOBAL_REPORT_DATA = []
 
 import threading
@@ -48,14 +51,14 @@ def get_nmap_urls(nmap_xml_file):
                 port_id = port.get('portid')
                 # Check for common HTTP/HTTPS services
                 service_name = port.xpath('./service/@name')
-                if 'http' in service_name or port_id in ('80', '443', '8080', '8443'):
-                    protocol = 'https' if port_id in ('443', '8443') else 'http'
+                if 'http' in service_name or port_id in ('80', '443', '8080', '8443', '8888', '8088', '8081', '10443', '9090', '8090', '8089'):
+                    protocol = 'https' if port_id in ('443', '8443', '10443') else 'http'
                     urls.add(f"{protocol}://{ip}:{port_id}")
     except Exception as e:
         print(f"Error parsing Nmap XML: {e}")
     return list(urls)
 
-def setup_webdriver(proxy_config=None):
+def setup_webdriver(proxy_config=None, wait_time=15):
     """Initializes a headless Firefox WebDriver, always accepting insecure certificates."""
     options = FirefoxOptions()
     options.add_argument("--headless")
@@ -92,10 +95,11 @@ def setup_webdriver(proxy_config=None):
             options.set_preference("network.proxy.ssl_port", int(port))
 
     driver = webdriver.Firefox(options=options)
+    driver.implicitly_wait(wait_time)
     return driver
 
 
-def capture_url(url, report_dir, proxy_config=None):
+def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3.0):
     """Navigates to the URL, captures screenshot, and retrieves headers."""
     global URL_COUNT_COMPLETED, URL_COUNT_FAILED
     driver = None
@@ -111,16 +115,25 @@ def capture_url(url, report_dir, proxy_config=None):
             }
 
         # 2. Get HTTP Response Headers using requests
-        response = requests.get(url, allow_redirects=True, timeout=10, proxies=proxies, verify=False)
+        response = requests.get(url, allow_redirects=True, timeout=wait_time, proxies=proxies, verify=False)
 
         final_url = response.url
         headers = dict(response.headers)
         status_code = response.status_code
 
         # 3. Setup and Navigate WebDriver
-        driver = setup_webdriver(proxy_config)
+        driver = setup_webdriver(proxy_config, wait_time)
         driver.get(url)
+        try:
+           WebDriverWait(driver, wait_time).until(
+                EC.visibility_of_element_located((By.TAG_NAME, 'body'))
+            )
+        except Exception:
+            # If the readyState doesn't become 'complete' within wait_time, we continue.
+            # This is non-critical for security scanning, as we still get the best possible screenshot.
+            pass
 
+        time.sleep(render_delay)
         # 4. Capture Screenshot
         safe_filename = final_url.replace("://", "_").replace("/", "_").replace(":", "-").replace("?", "__")
         screenshot_path = os.path.join(report_dir, f"{safe_filename}.png")
@@ -260,8 +273,9 @@ def main():
     # --- New Proxy Arguments ---
     parser.add_argument("--proxy", help="Specify a proxy server (e.g., http://127.0.0.1:8080 or socks5://127.0.0.1:9050). Default: No proxy.")
     # ---------------------------
-
+    parser.add_argument("--wait-time", type=int, default=15, help="Maximum seconds to wait for a connection (default: 15).")
     parser.add_argument("--threads", type=int, default=MAX_THREADS, help=f"Number of threads to use (default: {MAX_THREADS}).")
+    parser.add_argument("--render-delay", type=float, default=3.0, help="Fixed time (in seconds) to wait after loading, guaranteeing rendering (default: 3.0).")
     args = parser.parse_args()
 
     # 1. Prepare Target URLs
@@ -310,7 +324,7 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.threads) as executor:
         # Use a lambda function to pass the fixed 'proxy_config' argument to capture_url
-        futures = [executor.submit(capture_url, url, full_report_path, args.proxy) for url in urls]
+        futures = [executor.submit(capture_url, url, full_report_path, args.proxy, args.wait_time, args.render_delay) for url in urls]
         for _ in futures: pass
     monitor_thread.join() # Wait for the monitor thread to finish
     end_time = time.time()
