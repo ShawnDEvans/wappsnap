@@ -13,13 +13,14 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 import urllib3
+
 # --- Warning Suppression ---
 # Disable the InsecureRequestWarning that occurs when using verify=False over HTTPS
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- Configuration ---
 REPORTS_DIR = "reports"
-MAX_THREADS = 20
+MAX_THREADS = 8
 GLOBAL_REPORT_DATA = []
 
 import threading
@@ -27,7 +28,7 @@ URL_COUNT_TOTAL = 0
 URL_COUNT_COMPLETED = 0
 URL_COUNT_FAILED = 0
 COUNTER_LOCK = threading.Lock()
-
+VERBOSITY_LINE_WIDTH = 120
 
 # --- Helper Functions ---
 def print_progress(total):
@@ -98,8 +99,7 @@ def setup_webdriver(proxy_config=None, wait_time=15):
     driver.implicitly_wait(wait_time)
     return driver
 
-
-def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3.0):
+def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3.0, verbose=False):
     """Navigates to the URL, captures screenshot, and retrieves headers."""
     global URL_COUNT_COMPLETED, URL_COUNT_FAILED
     driver = None
@@ -139,7 +139,11 @@ def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3
         screenshot_path = os.path.join(report_dir, f"{safe_filename}.png")
         driver.save_screenshot(screenshot_path)
 
-        #print(f"[+] Success: {url} -> {screenshot_path}")
+        if verbose:
+            status_msg = f"[+] {url} -> SUCCESS ({status_code})"
+            padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}"
+            print(padded_output, end='', flush=True)
+            print()
 
         # 5. Store Result (Success)
         GLOBAL_REPORT_DATA.append({
@@ -159,7 +163,12 @@ def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3
         # SOCKS/HTTP connection pool errors, which are often classified
         # as a ConnectionError or Timeout/ProxyError internally.
         error_summary = "SSL connection timeout."
-        #print(f"[-] Failed to process {url}. Error: {error_summary}")
+
+        if verbose:
+            status_msg = f"[+] {url} -> FAILED ({status_code})"
+            padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}"
+            print(padded_output, end='', flush=True)
+            print()
 
         # Store Failure
         GLOBAL_REPORT_DATA.append({
@@ -179,7 +188,11 @@ def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3
         error_detail = str(e).split('\n')[0]
         error_summary = f"{error_type}: {error_detail}"
 
-        #print(f"[-] Failed to process {url}. Error: {error_summary}")
+        if verbose:
+            status_msg = f"[+] {url} -> FAILED ({status_code})"
+            padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}"
+            print(padded_output, end='', flush=True)
+            print()
 
         # Store Failure
         GLOBAL_REPORT_DATA.append({
@@ -276,6 +289,7 @@ def main():
     parser.add_argument("--wait-time", type=int, default=15, help="Maximum seconds to wait for a connection (default: 15).")
     parser.add_argument("--threads", type=int, default=MAX_THREADS, help=f"Number of threads to use (default: {MAX_THREADS}).")
     parser.add_argument("--render-delay", type=float, default=3.0, help="Fixed time (in seconds) to wait after loading, guaranteeing rendering (default: 3.0).")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity, showing all target URLs and per-request status.")
     args = parser.parse_args()
 
     # 1. Prepare Target URLs
@@ -297,8 +311,16 @@ def main():
         return
 
     print(f"Found {len(urls)} unique URLs to process.")
+
+    if args.verbose:
+        print("\n--- Target URL List ---")
+        for u in urls:
+            print(f"{u}")
+        print("-----------------------\n")
+
     if args.proxy:
         print(f"Using proxy: {args.proxy}")
+
     URL_COUNT_TOTAL = len(urls) # Set the total count
     # 2. Create Report Directory
     timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -324,7 +346,7 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.threads) as executor:
         # Use a lambda function to pass the fixed 'proxy_config' argument to capture_url
-        futures = [executor.submit(capture_url, url, full_report_path, args.proxy, args.wait_time, args.render_delay) for url in urls]
+        futures = [executor.submit(capture_url, url, full_report_path, args.proxy, args.wait_time, args.render_delay, args.verbose) for url in urls]
         for _ in futures: pass
     monitor_thread.join() # Wait for the monitor thread to finish
     end_time = time.time()

@@ -29,63 +29,39 @@ $ ./wappsnap.py -h
 - Add option to control page the load wait time (not the same as timeout)
 - Add setting to control the number of threads
 - Proper threading vs multiprocessing.Pool()
+- Add option to change output resolution
 
 ## Help
 ```
 $ ./wappsnap.py -h
-usage: 
-    wappsnap - Shawn Evans (@IdiotCoderMonkey) (www.nopsec.com)
+usage: wappsnap.py [-h] (--url URL | --file FILE | --nmap NMAP) [--proxy PROXY] [--wait-time WAIT_TIME] [--threads THREADS] [--render-delay RENDER_DELAY]
 
-        Inspired by and based upon:
-        PeepingTom - Tim Tomes (@LaNMaSteR53) (www.lanmaster53.com)
-
-    $ python ./wappsnap.py <mode> <path>
+WappSnap: A multi-threaded tool to capture screenshots of web servers.
 
 options:
-  -h, --help    show this help message and exit
-  -l LIST_FILE  list input mode. path to list file.
-  -x XML_FILE   xml input mode. path to Nessus/Nmap XML file.
-  -u TARGET     single input mode. path to target, remote URL or local path.
-  -o OUTPUT     output directory
-  -t TIMEOUT    socket timeout in seconds. default is 6 seconds.
-  --ip-only     use the IP address and ignore the hostname in an Nmap XML file
-  -v            verbose mode
-  -b            open results in browser
+  -h, --help            show this help message and exit
+  --url URL             Single URL to capture (e.g., http://example.com).
+  --file FILE           Path to a text file containing URLs (one per line).
+  --nmap NMAP           Path to an Nmap XML file to extract HTTP/HTTPS endpoints.
+  --proxy PROXY         Specify a proxy server (e.g., http://127.0.0.1:8080 or socks5://127.0.0.1:9050). Default: No proxy.
+  --wait-time WAIT_TIME
+                        Maximum seconds to wait for a connection (default: 15).
+  --threads THREADS     Number of threads to use (default: 20).
+  --render-delay RENDER_DELAY
+                        Fixed time (in seconds) to wait after loading, guaranteeing rendering (default: 3.0).
 
 ```
 
 ## Example Output
 ```
-shawnevans@pop-os:~/tools/wappsnap$ cat flat_file.txt | cut -d '/' -f 3
-www.google.com
-www.nopsec.com
-www.reddit.com
-www.amazon.com
-fake.effing.wingledong.com
-github.com
-shawnevans@pop-os:~/tools/wappsnap$ cat flat_file.txt | cut -d '/' -f 3 > hosts.txt
-shawnevans@pop-os:~/tools/wappsnap$ sudo nmap -sS -T4 -p 80,443,8443,8080,8081,9090,8090,8888,8088 -iL hosts.txt -oX hosts.xml
-shawnevans@pop-os:~/tools/wappsnap$ ./wappsnap.py -x hosts.xml 
-[*] Parsed targets:
-http://www.google.com:80
-https://www.google.com:443
-http://www.nopsec.com:80
-https://www.nopsec.com:443
-http://www.nopsec.com:8080
-https://www.nopsec.com:8443
-http://www.reddit.com:80
-https://www.reddit.com:443
-http://www.amazon.com:80
-https://www.amazon.com:443
-http://github.com:80
-https://github.com:443
-[*] Analyzing 12 targets.
-[*] Storing data in '250605_151316_0787/'
-[*] Starting a capture with 7 processes to complete 12 tasks.
-[!] Error: connection timeout on http://www.nopsec.com:8080
-[!] Error: connection timeout on https://www.nopsec.com:8443
-[========================================] 100%
-[*] Finished 10 of 12 with 2 errors in 26.02s
+$ ./wappsnap.py --proxy socks5://127.0.0.1:1082 --nmap nmap-sS-sC-sV-top-300-open.xml 
+Found 113 unique URLs to process.
+Using proxy: socks5://127.0.0.1:1082
+Report files will be saved in: reports/WappSnap_Run_20251028_134440
+⏳ Processing: Total: 113 | Completed: 102 | Failed: 11
+[+++] HTML report generated successfully at reports/WappSnap_Run_20251028_134440/report.html
+
+Total execution time: 248.59 seconds.
 ```
 
 ## HTML Report:
