@@ -72,6 +72,18 @@ def setup_webdriver(proxy_config=None, wait_time=15):
     options.set_preference("security.insecure_field_warning.contextual.enabled", False)
     options.set_capability("acceptInsecureCerts", True)
 
+    # 1. Set download directory to current working directory
+    options.set_preference("browser.download.folderList", 2)
+    options.set_preference("browser.download.dir", os.getcwd())
+
+    # 2. Tell Firefox to never prompt for file types we care about (like text/plain)
+    # The value '2' means save file silently without prompting.
+    options.set_preference("browser.helperApps.neverAsk.saveToDisk",
+                           "text/plain, application/octet-stream, application/xml, text/csv")
+
+    # 3. Disable the download pane opening (avoids potential focus issues)
+    options.set_preference("browser.download.manager.showWhenStarting", False)
+
     # Configure Proxy for Selenium (remains the same as the final SOCKS-fixed version)
     if proxy_config:
         try:
@@ -96,6 +108,7 @@ def setup_webdriver(proxy_config=None, wait_time=15):
             options.set_preference("network.proxy.ssl_port", int(port))
 
     driver = webdriver.Firefox(options=options)
+    driver.set_window_size(1280, 1024)
     driver.implicitly_wait(wait_time)
     return driver
 
@@ -116,6 +129,34 @@ def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3
 
         # 2. Get HTTP Response Headers using requests
         response = requests.get(url, allow_redirects=True, timeout=wait_time, proxies=proxies, verify=False)
+        content_type = response.headers.get('Content-Type', '').split(';')[0].strip()
+        is_downloadable = content_type in ["text/plain", "application/octet-stream", "text/csv"]
+        if is_downloadable:
+            # 1. Create temporary HTML content
+            temp_content = response.text.replace('<', '&lt;').replace('>', '&gt;') # Escape HTML
+
+            html_wrapper = f"""
+            <!DOCTYPE html>
+            <html>
+            <head><title>File Content: {url}</title></head>
+            <body>
+                <h1>Content from {url}</h1>
+                <pre>{temp_content}</pre>
+            </body>
+            </html>
+            """
+
+            # 2. Save the wrapper to a temporary file
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8') as tmp_file:
+                tmp_file.write(html_wrapper)
+                temp_html_path = tmp_file.name
+
+            # 3. Use the temporary file path for WebDriver
+            capture_target = f"file://{os.path.abspath(temp_html_path)}"
+        else:
+            # 4. Use the original URL for standard web pages
+            capture_target = url
 
         final_url = response.url
         headers = dict(response.headers)
@@ -123,7 +164,7 @@ def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3
 
         # 3. Setup and Navigate WebDriver
         driver = setup_webdriver(proxy_config, wait_time)
-        driver.get(url)
+        driver.get(capture_target)
         try:
            WebDriverWait(driver, wait_time).until(
                 EC.visibility_of_element_located((By.TAG_NAME, 'body'))
@@ -135,7 +176,7 @@ def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3
 
         time.sleep(render_delay)
         # 4. Capture Screenshot
-        safe_filename = final_url.replace("://", "_").replace("/", "_").replace(":", "-").replace("?", "__")
+        safe_filename = final_url.replace("://", "_").replace("/", "_").replace(":", "-").replace("", "").replace("&","")[:50]
         screenshot_path = os.path.join(report_dir, f"{safe_filename}.png")
         driver.save_screenshot(screenshot_path)
 
@@ -208,6 +249,8 @@ def capture_url(url, report_dir, proxy_config=None, wait_time=15, render_delay=3
     finally:
         if driver:
             driver.quit()
+        if 'temp_html_path' in locals() and os.path.exists(temp_html_path):
+            os.remove(temp_html_path)
 
 def generate_html_report(report_dir):
     """Generates the final HTML report file."""
@@ -227,17 +270,30 @@ def generate_html_report(report_dir):
             th {{ background-color: #f2f2f2; }}
             img {{ max-width: 700px; height: auto; border: 1px solid #ccc; }}
             .headers pre {{ white-space: pre-wrap; word-wrap: break-word; font-size: 0.8em; }}
+            .fixed-col {{
+              width: 300px;
+              overflow: auto;
+              white-space: wrap;
+              text-overflow: ellipsis;
+            }}
+            .fixed-table {{
+              table-layout: fixed;
+              width: 100%;
+            }}
+            .fixed-img {{
+              width: 700px;
+            }}
         </style>
     </head>
     <body>
         <h1>WappSnap Capture Report</h1>
         <p>Report Generated: {timestamp_str}</p>
-        <table>
+        <table class="fixed-table">
             <thead>
                 <tr>
-                    <th>Original URL</th>
-                    <th>Final URL / Status</th>
-                    <th>Screenshot</th>
+                    <th class="fixed-col">Original URL</th>
+                    <th class="fixed-col">Final URL / Status</th>
+                    <th class="fixed-img">Screenshot</th>
                     <th>HTTP Response Headers</th>
                 </tr>
             </thead>
@@ -250,9 +306,9 @@ def generate_html_report(report_dir):
 
         row = f"""
         <tr>
-            <td><a href="{data['url']}" target="_blank">{data['url']}</a></td>
-            <td><strong>{data['final_url']}</strong><br/>Status: {data['status_code']}</td>
-            <td>
+            <td class="fixed-col"><a href="{data['url']}" target="_blank">{data['url']}</a></td>
+            <td class="fixed-col"><strong>{data['final_url']}</strong><br/>Status: {data['status_code']}</td>
+            <td class="fixed-img">
                 {f'<a href="{data["screenshot_path"]}" target="_blank"><img src="{data["screenshot_path"]}" alt="Screenshot"></a>'
                  if data['screenshot_path'] != 'N/A' else 'N/A'}
             </td>
