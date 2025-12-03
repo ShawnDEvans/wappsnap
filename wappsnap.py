@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.chrome.options import Options as ChromeOptions # New Import
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -52,10 +53,17 @@ def get_nmap_urls(nmap_xml_file):
     try:
         tree = etree.parse(nmap_xml_file)
         for host in tree.xpath('//host'):
-            ip = host.xpath('./address[@addrtype="ipv4"]/@addr')[0]
+            # The original code assumed a single IPv4 address, which is fine for most uses.
+            ip_list = host.xpath('./address[@addrtype="ipv4"]/@addr')
+            if not ip_list:
+                continue
+            ip = ip_list[0]
+
             for port in host.xpath('./ports/port[state/@state="open"]'):
                 port_id = port.get('portid')
+                # Check service name (may be missing) and default ports
                 service_name = port.xpath('./service/@name')
+
                 if 'http' in service_name or port_id in ('80', '443', '8080', '8443'):
                     protocol = 'https' if port_id in ('443', '8443') else 'http'
                     urls.add(f"{protocol}://{ip}:{port_id}")
@@ -63,31 +71,49 @@ def get_nmap_urls(nmap_xml_file):
         print(f"[!] Error parsing Nmap XML: {e}")
     return list(urls)
 
-def setup_webdriver(wait_time):
-    """Initializes a headless Firefox WebDriver for the pool."""
-    options = FirefoxOptions()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1280,1024")
+def setup_webdriver(wait_time, browser_name):
+    """Initializes a headless WebDriver for the pool based on browser_name."""
 
-    # SSL Insecurity is the default behavior
-    options.set_preference("security.mixed_content.block_active_content", False)
-    options.set_preference("security.mixed_content.block_display_content", False)
-    options.set_preference("security.insecure_field_warning.contextual.enabled", False)
-    options.set_capability("acceptInsecureCerts", True)
+    if browser_name == "firefox":
+        options = FirefoxOptions()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1280,1024")
 
-    # Fix for file downloads (prevents freeze/timeout on non-page content)
-    options.set_preference("browser.download.folderList", 2)
-    options.set_preference("browser.download.dir", os.getcwd())
-    options.set_preference("browser.helperApps.neverAsk.saveToDisk",
-                           "text/plain, application/octet-stream, application/xml, text/csv")
-    options.set_preference("browser.download.manager.showWhenStarting", False)
+        # SSL Insecurity is the default behavior
+        options.set_preference("security.mixed_content.block_active_content", False)
+        options.set_preference("security.mixed_content.block_display_content", False)
+        options.set_preference("security.insecure_field_warning.contextual.enabled", False)
+        options.set_capability("acceptInsecureCerts", True)
 
-    # Note: Proxy is NOT set here. Proxy is applied on a per-URL basis via driver.get() settings later.
+        # Fix for file downloads (prevents freeze/timeout on non-page content)
+        options.set_preference("browser.download.folderList", 2)
+        options.set_preference("browser.download.dir", os.getcwd())
+        options.set_preference("browser.helperApps.neverAsk.saveToDisk",
+                               "text/plain, application/octet-stream, application/xml, text/csv")
+        options.set_preference("browser.download.manager.showWhenStarting", False)
 
-    driver = webdriver.Firefox(options=options)
+        driver = webdriver.Firefox(options=options)
+
+    elif browser_name == "chrome":
+        options = ChromeOptions()
+        # Use 'new' headless mode for modern Chrome/Chromium
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1280,1024")
+        # Insecurity flags for Chrome
+        options.add_argument("--ignore-certificate-errors")
+        options.add_argument("--allow-insecure-localhost")
+
+        # Note: If chromedriver is not in PATH, a service object must be used here.
+        driver = webdriver.Chrome(options=options)
+
+    else:
+        # This case should not be reached due to argparse choices
+        raise ValueError(f"Unsupported browser: {browser_name}")
+
     driver.implicitly_wait(wait_time)
-
     return driver
 
 def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, render_delay=1.0, verbose=False, network_timeout=10):
@@ -98,6 +124,10 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
     driver = None
     error_summary = "Unknown Error"
     status_code = "N/A"
+
+    # Initialize timing variables
+    network_time = "N/A"
+    render_time = "N/A"
 
     # Get driver from pool (blocks until one is available)
     driver = DRIVER_POOL.get()
@@ -116,7 +146,9 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
                 }
 
             # 2. Get HTTP Response Headers using the Session
+            start_network = time.time()
             response = session.get(url, allow_redirects=True, timeout=network_timeout, proxies=proxies, verify=False)
+            network_time = f"{(time.time() - start_network):.2f}s" # NEW: Record network time
 
             final_url = response.url
             headers = dict(response.headers)
@@ -138,17 +170,10 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
                     temp_html_path = tmp_file.name
                 capture_target = f"file://{os.path.abspath(temp_html_path)}"
 
-            # 3. Setup and Navigate WebDriver (Applies proxy if configured)
-            # WebDriver already in pool, apply proxy preferences just before navigation
-            if proxy_config:
-                 # Ensure proxy config is handled for recycled driver if needed,
-                 # but for simplicity and reliability, setting profile prefs on pooled drivers is avoided.
-                 # Relying only on requests for headers and assuming Firefox's default profile is used for rendering.
-                 pass # We rely on 'requests' for proxy status check, and trust the driver for rendering.
-
-            # Set page load timeout based on user input
+            # 3. Setup and Navigate WebDriver
             driver.set_page_load_timeout(wait_time)
 
+            start_render = time.time() # NEW: Start render time
             driver.get(capture_target)
 
             # --- HYBRID DYNAMIC WAIT + RENDER DELAY ---
@@ -163,6 +188,7 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             # Use configurable time for the final mandatory render buffer
             time.sleep(render_delay)
             # ---------------------------------------------------------------------
+            render_time = f"{(time.time() - start_render):.2f}s" # NEW: Record render time
 
             # 4. Capture Screenshot
             safe_filename = final_url.replace("://", "_").replace("/", "_").replace(":", "-").replace("?", "__")
@@ -172,7 +198,8 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             # --- VERBOSE STATUS OUTPUT (SUCCESS) ---
             if verbose:
                 print_progress(URL_COUNT_TOTAL)
-                status_msg = f"[+] {url} -> SUCCESS ({status_code})"
+                # NEW: Include timing in verbose output
+                status_msg = f"[+] {url} -> SUCCESS ({status_code}) [N:{network_time} R:{render_time}]"
                 padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}\n"
                 print(padded_output, end='', flush=True)
                 print_progress(URL_COUNT_TOTAL)
@@ -181,7 +208,8 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             # 5. Store Result (Success)
             GLOBAL_REPORT_DATA.append({
                 "url": url, "final_url": final_url, "status_code": status_code,
-                "screenshot_path": os.path.basename(screenshot_path), "headers": headers
+                "screenshot_path": os.path.basename(screenshot_path), "headers": headers,
+                "network_time": network_time, "render_time": render_time # NEW: Store times
             })
 
             with COUNTER_LOCK:
@@ -190,17 +218,21 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
         except (Timeout, ConnectionError, SSLError, ProxyError) as e:
             error_summary = "SSL connection timeout."
             status_code = "TIMEOUT"
+            # Note: Network time might be captured if the timeout occurred late.
+            # Render time will be N/A since driver.get() likely wasn't called or failed.
 
             if verbose:
                 print_progress(URL_COUNT_TOTAL)
-                status_msg = f"[-] {url} -> FAILED ({status_code}) - {error_summary}"
+                # NEW: Include timing in verbose output
+                status_msg = f"[-] {url} -> FAILED ({status_code}) [N:{network_time} R:{render_time}] - {error_summary}"
                 padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}\n"
                 print(padded_output, end='', flush=True)
                 print_progress(URL_COUNT_TOTAL)
 
             GLOBAL_REPORT_DATA.append({
                 "url": url, "final_url": url, "status_code": status_code,
-                "screenshot_path": "N/A", "headers": {"Error": error_summary}
+                "screenshot_path": "N/A", "headers": {"Error": error_summary},
+                "network_time": network_time, "render_time": render_time # NEW: Store times
             })
 
             with COUNTER_LOCK:
@@ -211,17 +243,20 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             error_detail = str(e).split('\n')[0]
             error_summary = f"{error_type}: {error_detail}"
             status_code = "ERROR"
+            # Note: Network time might be captured. Render time may be partial or N/A.
 
             if verbose:
                 print_progress(URL_COUNT_TOTAL)
-                status_msg = f"[-] {url} -> FAILED ({status_code}) - {error_summary}"
+                # NEW: Include timing in verbose output
+                status_msg = f"[-] {url} -> FAILED ({status_code}) [N:{network_time} R:{render_time}] - {error_summary}"
                 padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}\n"
                 print(padded_output, end='', flush=True)
                 print_progress(URL_COUNT_TOTAL)
 
             GLOBAL_REPORT_DATA.append({
                 "url": url, "final_url": url, "status_code": status_code,
-                "screenshot_path": "N/A", "headers": {"Error": error_summary}
+                "screenshot_path": "N/A", "headers": {"Error": error_summary},
+                "network_time": network_time, "render_time": render_time # NEW: Store times
             })
 
             with COUNTER_LOCK:
@@ -234,6 +269,11 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
 
             # 2. Release driver back to pool
             if driver:
+                # Use driver.get("about:blank") to reset the driver's state before recycling
+                try:
+                    driver.get("about:blank")
+                except Exception:
+                    pass
                 DRIVER_POOL.put(driver)
 
             # Ensure progress meter is updated even if verbose is off
@@ -274,13 +314,13 @@ def generate_html_report(report_dir):
             /* 1. Original URL */
             th:nth-child(1), td:nth-child(1) {{ width: 20%; }}
 
-            /* 2. Final URL / Status (The problematic column) */
+            /* 2. Final URL / Status / Times (MODIFIED) */
             th:nth-child(2), td:nth-child(2) {{
-                width: 20%; /* Fixed width for the final URL column */
+                width: 25%; /* Increased width for new time data */
             }}
 
             /* 3. Screenshot */
-            th:nth-child(3), td:nth-child(3) {{ width: 40%; }}
+            th:nth-child(3), td:nth-child(3) {{ width: 35%; }}
 
             /* 4. HTTP Response Headers */
             th:nth-child(4), td:nth-child(4) {{ width: 20%; }}
@@ -298,8 +338,7 @@ def generate_html_report(report_dir):
             <thead>
                 <tr>
                     <th>Original URL</th>
-                    <th>Final URL / Status</th>
-                    <th>Screenshot</th>
+                    <th>Final URL / Status / Times</th> <th>Screenshot</th>
                     <th>HTTP Response Headers</th>
                 </tr>
             </thead>
@@ -310,10 +349,17 @@ def generate_html_report(report_dir):
     for data in GLOBAL_REPORT_DATA:
         header_str = "\n".join([f"{k}: {v}" for k, v in data['headers'].items()])
 
+        # Extract times safely
+        net_time = data.get('network_time', 'N/A')
+        rend_time = data.get('render_time', 'N/A')
+
         row = f"""
         <tr>
             <td><a href="{data['url']}" target="_blank">{data['url']}</a></td>
-            <td><strong>{data['final_url']}</strong><br/>Status: {data['status_code']}</td>
+            <td>
+                <strong>{data['final_url']}</strong><br/>
+                Status: {data['status_code']}<br/>
+                Network Time: {net_time}<br/> Render Time: {rend_time}   </td>
             <td>
                 {f'<a href="{data["screenshot_path"]}" target="_blank"><img src="{data["screenshot_path"]}" alt="Screenshot"></a>'
                  if data['screenshot_path'] != 'N/A' else 'N/A'}
@@ -352,6 +398,10 @@ def main():
     parser.add_argument("--render-delay", type=float, default=1.0, help="Fixed time (in seconds) to wait after loading, guaranteeing rendering (default: 1.0).")
     parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity, showing all target URLs and per-request status.")
 
+    # NEW: Browser selection argument
+    parser.add_argument("--browser", default="chrome", choices=["chrome", "firefox"],
+                        help="Specify the WebDriver browser to use (default: chrome).")
+
     parser.add_argument("--threads", type=int, default=MAX_THREADS, help=f"Number of threads to use (default: {MAX_THREADS}).")
     args = parser.parse_args()
 
@@ -376,6 +426,7 @@ def main():
     print(f"[*] Found {len(urls)} unique URLs to process.")
     if args.proxy:
         print(f"[*] Using proxy: {args.proxy}")
+    print(f"[*] Using WebDriver: {args.browser.capitalize()}") # NEW: Report selected browser
 
     if args.verbose:
         print("\n--- Target URL List ---")
@@ -390,11 +441,12 @@ def main():
     print(f"[*] Initializing {num_threads} WebDriver instances...")
     for _ in range(num_threads):
         try:
-            # Pass wait_time to setup_webdriver to set implicit wait on driver startup
-            driver = setup_webdriver(args.wait_time)
+            # Pass wait_time AND browser name
+            driver = setup_webdriver(args.wait_time, args.browser)
             DRIVER_POOL.put(driver)
         except Exception as e:
-            print(f"[!] FATAL: Could not initialize WebDriver instance. Check geckodriver/PATH. Error: {e}")
+            # Improved error message for WebDriver failure
+            print(f"[!] FATAL: Could not initialize {args.browser} WebDriver instance. Check if the required driver is installed and in your PATH. Error: {e}")
             return
 
     # 3. Create Report Directory
@@ -407,7 +459,6 @@ def main():
     # 4. Multi-threaded Processing
     start_time = time.time()
 
-    stop_event = threading.Event()
     def monitor_progress():
         while URL_COUNT_COMPLETED + URL_COUNT_FAILED < URL_COUNT_TOTAL:
             if not args.verbose:
@@ -420,8 +471,8 @@ def main():
 
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
         futures = [executor.submit(capture_url_recycled, url, full_report_path,
-                                   args.proxy, args.wait_time, args.render_delay,
-                                   args.verbose, args.network_timeout) for url in urls]
+                                    args.proxy, args.wait_time, args.render_delay,
+                                    args.verbose, args.network_timeout) for url in urls]
         for _ in futures: pass # Wait for all to complete
 
     monitor_thread.join()
@@ -430,7 +481,11 @@ def main():
     print("\n[*] Cleaning up WebDriver pool...")
     while not DRIVER_POOL.empty():
         driver = DRIVER_POOL.get()
-        driver.quit()
+        # Clean shutdown (important for releasing browser processes)
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
     end_time = time.time()
 

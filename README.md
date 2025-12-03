@@ -31,15 +31,15 @@ $ ./wappsnap.py -h
 ## Help
 ```
 $ ./wappsnap.py -h
-usage: wappsnap.py [-h] (--url URL | --file FILE | --nmap NMAP) [--proxy PROXY] [--network-timeout NETWORK_TIMEOUT]
-                   [--wait-time WAIT_TIME] [--render-delay RENDER_DELAY] [-v] [--threads THREADS]
+usage: wappsnap.py [-h] (-u URL | -f FILE | --nmap NMAP) [--proxy PROXY] [--network-timeout NETWORK_TIMEOUT]
+                   [--wait-time WAIT_TIME] [--render-delay RENDER_DELAY] [-v] [--browser {chrome,firefox}] [--threads THREADS]
 
 WappSnap: A multi-threaded tool to capture screenshots of web servers.
 
 options:
   -h, --help            show this help message and exit
-  --url URL             Single URL to capture (e.g., http://example.com).
-  --file FILE           Path to a text file containing URLs (one per line).
+  -u URL, --url URL     Single URL to capture (e.g., http://example.com).
+  -f FILE, --file FILE  Path to a text file containing URLs (one per line).
   --nmap NMAP           Path to an Nmap XML file to extract HTTP/HTTPS endpoints.
   --proxy PROXY         Specify a proxy server (e.g., http://127.0.0.1:8080 or socks5://127.0.0.1:9050). Default: No proxy.
   --network-timeout NETWORK_TIMEOUT
@@ -49,22 +49,35 @@ options:
   --render-delay RENDER_DELAY
                         Fixed time (in seconds) to wait after loading, guaranteeing rendering (default: 1.0).
   -v, --verbose         Increase output verbosity, showing all target URLs and per-request status.
+  --browser {chrome,firefox}
+                        Specify the WebDriver browser to use (default: chrome).
   --threads THREADS     Number of threads to use (default: 8).
-
 ```
 
 ## Example Output
 ```
-$ ./wappsnap.py --file drw_2.txt 
-[*] Found 24 unique URLs to process.
+$ ./wappsnap.py --file test.txt -v
+[*] Found 4 unique URLs to process.
+
+--- Target URL List ---
+https://www.amazon.com
+https://www.linkedin.com
+https://www.google.com
+https://www.microsoft.com
+-----------------------
+
 [*] Initializing 8 WebDriver instances...
-[*] Report files will be saved in: reports/WappSnap_Run_20251203_151050
-[*] ⏳ Processing: Total: 24 | Completed: 17 | Failed: 7
+[*] Report files will be saved in: reports/WappSnap_Run_20251203_151916
+[+] https://www.google.com -> SUCCESS (200)                                                                             
+[+] https://www.linkedin.com -> SUCCESS (200)                                                                           
+[+] https://www.amazon.com -> SUCCESS (503)                                                                             
+[+] https://www.microsoft.com -> SUCCESS (200)                                                                          
+[*] ⏳ Processing: Total: 4 | Completed: 4 | Failed: 0
 [*] Cleaning up WebDriver pool...
 
-[+] HTML report generated successfully at reports/WappSnap_Run_20251203_151050/report.html
+[+] HTML report generated successfully at reports/WappSnap_Run_20251203_151916/report.html
 
-[*] Total execution time: 26.36 seconds.
+[*] Total execution time: 11.06 seconds.
 
 ```
 
