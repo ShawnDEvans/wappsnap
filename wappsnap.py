@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.chrome.options import Options as ChromeOptions # New Import
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -53,7 +53,6 @@ def get_nmap_urls(nmap_xml_file):
     try:
         tree = etree.parse(nmap_xml_file)
         for host in tree.xpath('//host'):
-            # The original code assumed a single IPv4 address, which is fine for most uses.
             ip_list = host.xpath('./address[@addrtype="ipv4"]/@addr')
             if not ip_list:
                 continue
@@ -61,7 +60,6 @@ def get_nmap_urls(nmap_xml_file):
 
             for port in host.xpath('./ports/port[state/@state="open"]'):
                 port_id = port.get('portid')
-                # Check service name (may be missing) and default ports
                 service_name = port.xpath('./service/@name')
 
                 if 'http' in service_name or port_id in ('80', '443', '8080', '8443'):
@@ -72,7 +70,7 @@ def get_nmap_urls(nmap_xml_file):
     return list(urls)
 
 def setup_webdriver(wait_time, browser_name):
-    """Initializes a headless WebDriver for the pool based on browser_name."""
+    """Initializes a headless WebDriver instance for the pool based on browser_name."""
 
     if browser_name == "firefox":
         options = FirefoxOptions()
@@ -97,20 +95,16 @@ def setup_webdriver(wait_time, browser_name):
 
     elif browser_name == "chrome":
         options = ChromeOptions()
-        # Use 'new' headless mode for modern Chrome/Chromium
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1280,1024")
-        # Insecurity flags for Chrome
         options.add_argument("--ignore-certificate-errors")
         options.add_argument("--allow-insecure-localhost")
 
-        # Note: If chromedriver is not in PATH, a service object must be used here.
         driver = webdriver.Chrome(options=options)
 
     else:
-        # This case should not be reached due to argparse choices
         raise ValueError(f"Unsupported browser: {browser_name}")
 
     driver.implicitly_wait(wait_time)
@@ -125,14 +119,12 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
     error_summary = "Unknown Error"
     status_code = "N/A"
 
-    # Initialize timing variables
     network_time = "N/A"
     render_time = "N/A"
 
     # Get driver from pool (blocks until one is available)
     driver = DRIVER_POOL.get()
 
-    # Use requests.Session as a context manager for reliable cleanup of sockets
     with requests.Session() as session:
         temp_html_path = None
 
@@ -148,7 +140,7 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             # 2. Get HTTP Response Headers using the Session
             start_network = time.time()
             response = session.get(url, allow_redirects=True, timeout=network_timeout, proxies=proxies, verify=False)
-            network_time = f"{(time.time() - start_network):.2f}s" # NEW: Record network time
+            network_time = f"{(time.time() - start_network):.2f}s"
 
             final_url = response.url
             headers = dict(response.headers)
@@ -156,6 +148,8 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
 
             # Determine the URL to capture (original or temporary HTML file)
             capture_target = url
+            screenshot_path_result = "N/A"
+
             content_type = response.headers.get('Content-Type', '').split(';')[0].strip()
 
             if content_type in ["text/plain", "application/octet-stream", "application/xml", "text/csv"]:
@@ -173,7 +167,7 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             # 3. Setup and Navigate WebDriver
             driver.set_page_load_timeout(wait_time)
 
-            start_render = time.time() # NEW: Start render time
+            start_render = time.time()
             driver.get(capture_target)
 
             # --- HYBRID DYNAMIC WAIT + RENDER DELAY ---
@@ -188,17 +182,25 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             # Use configurable time for the final mandatory render buffer
             time.sleep(render_delay)
             # ---------------------------------------------------------------------
-            render_time = f"{(time.time() - start_render):.2f}s" # NEW: Record render time
+            render_time = f"{(time.time() - start_render):.2f}s"
 
             # 4. Capture Screenshot
-            safe_filename = final_url.replace("://", "_").replace("/", "_").replace(":", "-").replace("?", "__")
+
+            # --- FILENAME FIX START ---
+            # Truncate the URL at the first '?' to remove query parameters
+            filename_base = final_url.split('?')[0]
+
+            # Sanitize the base URL for use as a filename
+            safe_filename = filename_base.replace("://", "_").replace("/", "_").replace(":", "-").replace("?", "_").replace("#","")
+            # --- FILENAME FIX END ---
+
             screenshot_path = os.path.join(report_dir, f"{safe_filename}.png")
             driver.save_screenshot(screenshot_path)
+            screenshot_path_result = os.path.basename(screenshot_path)
 
             # --- VERBOSE STATUS OUTPUT (SUCCESS) ---
             if verbose:
                 print_progress(URL_COUNT_TOTAL)
-                # NEW: Include timing in verbose output
                 status_msg = f"[+] {url} -> SUCCESS ({status_code}) [N:{network_time} R:{render_time}]"
                 padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}\n"
                 print(padded_output, end='', flush=True)
@@ -208,8 +210,8 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             # 5. Store Result (Success)
             GLOBAL_REPORT_DATA.append({
                 "url": url, "final_url": final_url, "status_code": status_code,
-                "screenshot_path": os.path.basename(screenshot_path), "headers": headers,
-                "network_time": network_time, "render_time": render_time # NEW: Store times
+                "screenshot_path": screenshot_path_result, "headers": headers,
+                "network_time": network_time, "render_time": render_time
             })
 
             with COUNTER_LOCK:
@@ -218,12 +220,9 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
         except (Timeout, ConnectionError, SSLError, ProxyError) as e:
             error_summary = "SSL connection timeout."
             status_code = "TIMEOUT"
-            # Note: Network time might be captured if the timeout occurred late.
-            # Render time will be N/A since driver.get() likely wasn't called or failed.
 
             if verbose:
                 print_progress(URL_COUNT_TOTAL)
-                # NEW: Include timing in verbose output
                 status_msg = f"[-] {url} -> FAILED ({status_code}) [N:{network_time} R:{render_time}] - {error_summary}"
                 padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}\n"
                 print(padded_output, end='', flush=True)
@@ -232,7 +231,7 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             GLOBAL_REPORT_DATA.append({
                 "url": url, "final_url": url, "status_code": status_code,
                 "screenshot_path": "N/A", "headers": {"Error": error_summary},
-                "network_time": network_time, "render_time": render_time # NEW: Store times
+                "network_time": network_time, "render_time": render_time
             })
 
             with COUNTER_LOCK:
@@ -243,11 +242,9 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             error_detail = str(e).split('\n')[0]
             error_summary = f"{error_type}: {error_detail}"
             status_code = "ERROR"
-            # Note: Network time might be captured. Render time may be partial or N/A.
 
             if verbose:
                 print_progress(URL_COUNT_TOTAL)
-                # NEW: Include timing in verbose output
                 status_msg = f"[-] {url} -> FAILED ({status_code}) [N:{network_time} R:{render_time}] - {error_summary}"
                 padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}\n"
                 print(padded_output, end='', flush=True)
@@ -256,7 +253,7 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             GLOBAL_REPORT_DATA.append({
                 "url": url, "final_url": url, "status_code": status_code,
                 "screenshot_path": "N/A", "headers": {"Error": error_summary},
-                "network_time": network_time, "render_time": render_time # NEW: Store times
+                "network_time": network_time, "render_time": render_time
             })
 
             with COUNTER_LOCK:
@@ -269,7 +266,6 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
 
             # 2. Release driver back to pool
             if driver:
-                # Use driver.get("about:blank") to reset the driver's state before recycling
                 try:
                     driver.get("about:blank")
                 except Exception:
@@ -280,9 +276,12 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             if not verbose:
                 print_progress(URL_COUNT_TOTAL)
 
-def generate_html_report(report_dir):
+def generate_html_report(report_dir, report_data):
     """Generates the final HTML report file."""
     timestamp_str = time.ctime()
+
+    # Determine the report title based on filtering
+    report_title = "WappSnap Capture Report (Completed Only)" if len(report_data) < URL_COUNT_TOTAL else "WappSnap Capture Report"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -314,9 +313,9 @@ def generate_html_report(report_dir):
             /* 1. Original URL */
             th:nth-child(1), td:nth-child(1) {{ width: 20%; }}
 
-            /* 2. Final URL / Status / Times (MODIFIED) */
+            /* 2. Final URL / Status / Times */
             th:nth-child(2), td:nth-child(2) {{
-                width: 25%; /* Increased width for new time data */
+                width: 25%;
             }}
 
             /* 3. Screenshot */
@@ -332,24 +331,25 @@ def generate_html_report(report_dir):
         </style>
     </head>
     <body>
-        <h1>WappSnap Capture Report</h1>
+        <h1>{report_title}</h1>
         <p>Report Generated: {timestamp_str}</p>
+        <p>Total URLs Processed: {URL_COUNT_TOTAL} | Included in Report: {len(report_data)}</p>
         <table>
             <thead>
                 <tr>
                     <th>Original URL</th>
-                    <th>Final URL / Status / Times</th> <th>Screenshot</th>
+                    <th>Final URL / Status / Times</th>
+                    <th>Screenshot</th>
                     <th>HTTP Response Headers</th>
                 </tr>
             </thead>
             <tbody>
     """
 
-    # Add table rows
-    for data in GLOBAL_REPORT_DATA:
+    # Add table rows from the provided report_data list
+    for data in report_data:
         header_str = "\n".join([f"{k}: {v}" for k, v in data['headers'].items()])
 
-        # Extract times safely
         net_time = data.get('network_time', 'N/A')
         rend_time = data.get('render_time', 'N/A')
 
@@ -359,7 +359,9 @@ def generate_html_report(report_dir):
             <td>
                 <strong>{data['final_url']}</strong><br/>
                 Status: {data['status_code']}<br/>
-                Network Time: {net_time}<br/> Render Time: {rend_time}   </td>
+                Network Time: {net_time}<br/>
+                Render Time: {rend_time}
+            </td>
             <td>
                 {f'<a href="{data["screenshot_path"]}" target="_blank"><img src="{data["screenshot_path"]}" alt="Screenshot"></a>'
                  if data['screenshot_path'] != 'N/A' else 'N/A'}
@@ -377,15 +379,18 @@ def generate_html_report(report_dir):
     """
 
     # Save the report
-    with open(os.path.join(report_dir, "report.html"), 'w') as f:
+    report_filename = "report_completed.html" if len(report_data) < URL_COUNT_TOTAL else "report.html"
+    report_path = os.path.join(report_dir, report_filename)
+
+    with open(report_path, 'w') as f:
         f.write(html_content)
 
-    print(f"[+] HTML report generated successfully at {os.path.join(report_dir, 'report.html')}")
+    print(f"[+] HTML report generated successfully at {report_path}")
 
 # --- Main Logic ---
 
 def main():
-    global URL_COUNT_TOTAL
+    global URL_COUNT_TOTAL, GLOBAL_REPORT_DATA
     parser = argparse.ArgumentParser(description="WappSnap: A multi-threaded tool to capture screenshots of web servers.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-u", "--url", help="Single URL to capture (e.g., http://example.com).")
@@ -397,10 +402,12 @@ def main():
     parser.add_argument("--wait-time", type=int, default=15, help="Maximum seconds to wait for a page to load/render (default: 15).")
     parser.add_argument("--render-delay", type=float, default=1.0, help="Fixed time (in seconds) to wait after loading, guaranteeing rendering (default: 1.0).")
     parser.add_argument("-v", "--verbose", action="store_true", help="Increase output verbosity, showing all target URLs and per-request status.")
-
-    # NEW: Browser selection argument
     parser.add_argument("--browser", default="chrome", choices=["chrome", "firefox"],
                         help="Specify the WebDriver browser to use (default: chrome).")
+
+    # NEW: Completed-only report flag
+    parser.add_argument("--completed-only", action="store_true",
+                        help="Limits the final HTML report to only include URLs that successfully generated a screenshot.")
 
     parser.add_argument("--threads", type=int, default=MAX_THREADS, help=f"Number of threads to use (default: {MAX_THREADS}).")
     args = parser.parse_args()
@@ -426,7 +433,7 @@ def main():
     print(f"[*] Found {len(urls)} unique URLs to process.")
     if args.proxy:
         print(f"[*] Using proxy: {args.proxy}")
-    print(f"[*] Using WebDriver: {args.browser.capitalize()}") # NEW: Report selected browser
+    print(f"[*] Using WebDriver: {args.browser.capitalize()}")
 
     if args.verbose:
         print("\n--- Target URL List ---")
@@ -441,11 +448,9 @@ def main():
     print(f"[*] Initializing {num_threads} WebDriver instances...")
     for _ in range(num_threads):
         try:
-            # Pass wait_time AND browser name
             driver = setup_webdriver(args.wait_time, args.browser)
             DRIVER_POOL.put(driver)
         except Exception as e:
-            # Improved error message for WebDriver failure
             print(f"[!] FATAL: Could not initialize {args.browser} WebDriver instance. Check if the required driver is installed and in your PATH. Error: {e}")
             return
 
@@ -481,7 +486,6 @@ def main():
     print("\n[*] Cleaning up WebDriver pool...")
     while not DRIVER_POOL.empty():
         driver = DRIVER_POOL.get()
-        # Clean shutdown (important for releasing browser processes)
         try:
             driver.quit()
         except Exception:
@@ -490,7 +494,14 @@ def main():
     end_time = time.time()
 
     # 6. Generate Final Report
-    generate_html_report(full_report_path)
+
+    # Filter the report data if the --completed-only flag is set
+    report_data_to_use = GLOBAL_REPORT_DATA
+    if args.completed_only:
+        print(f"[*] Filtering report data: Only including {URL_COUNT_COMPLETED} successful captures...")
+        report_data_to_use = [data for data in GLOBAL_REPORT_DATA if data['screenshot_path'] != 'N/A']
+
+    generate_html_report(full_report_path, report_data_to_use) # Pass the filtered list
 
     print(f"[*] Total execution time: {end_time - start_time:.2f} seconds.")
 

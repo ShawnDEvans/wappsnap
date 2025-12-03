@@ -30,9 +30,9 @@ $ ./wappsnap.py -h
 
 ## Help
 ```
-$ ./wappsnap.py -h
-usage: wappsnap.py [-h] (-u URL | -f FILE | --nmap NMAP) [--proxy PROXY] [--network-timeout NETWORK_TIMEOUT]
-                   [--wait-time WAIT_TIME] [--render-delay RENDER_DELAY] [-v] [--browser {chrome,firefox}] [--threads THREADS]
+$ python3 tmp.py -h
+usage: tmp.py [-h] (-u URL | -f FILE | --nmap NMAP) [--proxy PROXY] [--network-timeout NETWORK_TIMEOUT] [--wait-time WAIT_TIME]
+              [--render-delay RENDER_DELAY] [-v] [--browser {chrome,firefox}] [--completed-only] [--threads THREADS]
 
 WappSnap: A multi-threaded tool to capture screenshots of web servers.
 
@@ -51,33 +51,23 @@ options:
   -v, --verbose         Increase output verbosity, showing all target URLs and per-request status.
   --browser {chrome,firefox}
                         Specify the WebDriver browser to use (default: chrome).
+  --completed-only      Limits the final HTML report to only include URLs that successfully generated a screenshot.
   --threads THREADS     Number of threads to use (default: 8).
+
 ```
 
 ## Example Output
 ```
-$ ./wappsnap.py --file test.txt -v
-[*] Found 4 unique URLs to process.
-
---- Target URL List ---
-https://www.amazon.com
-https://www.linkedin.com
-https://www.google.com
-https://www.microsoft.com
------------------------
-
+$ ./wappsnap.py -f urls.txt --completed-only
+[*] Found 218 unique URLs to process.
+[*] Using WebDriver: Chrome
 [*] Initializing 8 WebDriver instances...
-[*] Report files will be saved in: reports/WappSnap_Run_20251203_151916
-[+] https://www.google.com -> SUCCESS (200)                                                                             
-[+] https://www.linkedin.com -> SUCCESS (200)                                                                           
-[+] https://www.amazon.com -> SUCCESS (503)                                                                             
-[+] https://www.microsoft.com -> SUCCESS (200)                                                                          
-[*] ⏳ Processing: Total: 4 | Completed: 4 | Failed: 0
+[*] Report files will be saved in: reports/WappSnap_Run_20251203_173052
+[*] ⏳ Processing: Total: 218 | Completed: 66 | Failed: 152
 [*] Cleaning up WebDriver pool...
-
-[+] HTML report generated successfully at reports/WappSnap_Run_20251203_151916/report.html
-
-[*] Total execution time: 11.06 seconds.
+[*] Filtering report data: Only including 66 successful captures...
+[+] HTML report generated successfully at reports/WappSnap_Run_20251203_173052/report_completed.html
+[*] Total execution time: 85.77 seconds.
 
 ```
 
