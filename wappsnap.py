@@ -253,10 +253,41 @@ def generate_html_report(report_dir):
         <style>
             body {{ font-family: Arial, sans-serif; margin: 20px; }}
             h1 {{ color: #333; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-            th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; }}
+
+            /* --- Table Layout Settings (CRITICAL) --- */
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 20px;
+                table-layout: fixed; /* Ensures column widths are respected */
+            }}
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 10px;
+                text-align: left;
+                vertical-align: top;
+                word-wrap: break-word; /* Ensures text wraps */
+            }}
             th {{ background-color: #f2f2f2; }}
-            img {{ max-width: 700px; height: auto; border: 1px solid #ccc; }}
+
+            /* --- FIXED COLUMN WIDTHS --- */
+            /* 1. Original URL */
+            th:nth-child(1), td:nth-child(1) {{ width: 20%; }}
+
+            /* 2. Final URL / Status (The problematic column) */
+            th:nth-child(2), td:nth-child(2) {{
+                width: 20%; /* Fixed width for the final URL column */
+            }}
+
+            /* 3. Screenshot */
+            th:nth-child(3), td:nth-child(3) {{ width: 40%; }}
+
+            /* 4. HTTP Response Headers */
+            th:nth-child(4), td:nth-child(4) {{ width: 20%; }}
+
+            /* --------------------------- */
+
+            img {{ max-width: 100%; height: auto; border: 1px solid #ccc; }}
             .headers pre {{ white-space: pre-wrap; word-wrap: break-word; font-size: 0.8em; }}
         </style>
     </head>
@@ -303,7 +334,7 @@ def generate_html_report(report_dir):
     with open(os.path.join(report_dir, "report.html"), 'w') as f:
         f.write(html_content)
 
-    print(f"\n[+] HTML report generated successfully at {os.path.join(report_dir, 'report.html')}")
+    print(f"[+] HTML report generated successfully at {os.path.join(report_dir, 'report.html')}")
 
 # --- Main Logic ---
 
@@ -311,8 +342,8 @@ def main():
     global URL_COUNT_TOTAL
     parser = argparse.ArgumentParser(description="WappSnap: A multi-threaded tool to capture screenshots of web servers.")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--url", help="Single URL to capture (e.g., http://example.com).")
-    group.add_argument("--file", help="Path to a text file containing URLs (one per line).")
+    group.add_argument("-u", "--url", help="Single URL to capture (e.g., http://example.com).")
+    group.add_argument("-f", "--file", help="Path to a text file containing URLs (one per line).")
     group.add_argument("--nmap", help="Path to an Nmap XML file to extract HTTP/HTTPS endpoints.")
 
     parser.add_argument("--proxy", help="Specify a proxy server (e.g., http://127.0.0.1:8080 or socks5://127.0.0.1:9050). Default: No proxy.")
@@ -353,7 +384,7 @@ def main():
         print("-----------------------\n")
 
     URL_COUNT_TOTAL = len(urls)
-    num_threads = args.threads
+    num_threads = args.threads if args.threads <= len(urls) else len(urls)
 
     # 2. Initialize the WebDriver Pool
     print(f"[*] Initializing {num_threads} WebDriver instances...")
@@ -406,7 +437,7 @@ def main():
     # 6. Generate Final Report
     generate_html_report(full_report_path)
 
-    print(f"\n[*] Total execution time: {end_time - start_time:.2f} seconds.")
+    print(f"[*] Total execution time: {end_time - start_time:.2f} seconds.")
 
 if __name__ == "__main__":
     main()
