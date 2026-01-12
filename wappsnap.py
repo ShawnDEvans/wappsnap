@@ -4,6 +4,7 @@ import os
 import time
 import requests
 import urllib3
+from urllib.parse import urlparse
 import threading
 import queue
 import tempfile
@@ -69,13 +70,21 @@ def get_nmap_urls(nmap_xml_file):
         print(f"[!] Error parsing Nmap XML: {e}")
     return list(urls)
 
-def setup_webdriver(wait_time, browser_name):
+def setup_webdriver(wait_time, browser_name, proxy):
     """Initializes a headless WebDriver instance for the pool based on browser_name."""
 
     if browser_name == "firefox":
         options = FirefoxOptions()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
+        if proxy:
+            socks_parsed = urlparse(proxy)
+            options.set_preference("network.proxy.type", 1)
+            options.set_preference("network.proxy.socks", socks_parsed.hostname)
+            options.set_preference("network.proxy.socks_port", socks_parsed.port)
+            options.set_preference("network.proxy.socks_version", 5)
+            options.set_preference("network.proxy.socks_remote_dns", True)
+        options.set_preference("webgl.disabled", True)
+        options.set_preference("layers.acceleration.disabled", True)
+        options.add_argument("-headless")
         options.add_argument("--window-size=1280,1024")
 
         # SSL Insecurity is the default behavior
@@ -96,17 +105,22 @@ def setup_webdriver(wait_time, browser_name):
     elif browser_name == "chrome":
         options = ChromeOptions()
         options.add_argument("--headless=new")
+        if proxy:
+            options.add_argument(f'--proxy-server={proxy}')
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-gpu")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--force-device-scale-factor=1")
         options.add_argument("--window-size=1280,1024")
         options.add_argument("--ignore-certificate-errors")
         options.add_argument("--allow-insecure-localhost")
+        options.add_argument("--disable-dev-shm-usage")
 
         driver = webdriver.Chrome(options=options)
 
     else:
         raise ValueError(f"Unsupported browser: {browser_name}")
-
     driver.implicitly_wait(wait_time)
     return driver
 
@@ -448,7 +462,7 @@ def main():
     print(f"[*] Initializing {num_threads} WebDriver instances...")
     for _ in range(num_threads):
         try:
-            driver = setup_webdriver(args.wait_time, args.browser)
+            driver = setup_webdriver(args.wait_time, args.browser, args.proxy)
             DRIVER_POOL.put(driver)
         except Exception as e:
             print(f"[!] FATAL: Could not initialize {args.browser} WebDriver instance. Check if the required driver is installed and in your PATH. Error: {e}")
