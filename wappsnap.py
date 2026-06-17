@@ -48,24 +48,41 @@ def print_progress(total):
 
 # --- Helper Functions ---
 
+from lxml import etree
+
 def get_nmap_urls(nmap_xml_file):
-    """Extracts HTTP/HTTPS URLs from an Nmap XML file."""
+    """Extracts HTTP/HTTPS URLs from an Nmap XML file, prioritizing FQDNs."""
     urls = set()
     try:
         tree = etree.parse(nmap_xml_file)
         for host in tree.xpath('//host'):
+            # 1. Get the IP Address as the ultimate fallback
             ip_list = host.xpath('./address[@addrtype="ipv4"]/@addr')
             if not ip_list:
                 continue
             ip = ip_list[0]
 
+            # 2. Try to get the FQDN (prioritizing 'user' or 'PTR' types if available)
+            # This grabs the first name found in the <hostnames> block
+            hostnames = host.xpath('./hostnames/hostname/@name')
+            target = hostnames[0] if hostnames else ip
+
             for port in host.xpath('./ports/port[state/@state="open"]'):
                 port_id = port.get('portid')
-                service_name = port.xpath('./service/@name')
+                service_list = port.xpath('./service/@name')
+                service_name = service_list[0] if service_list else ""
 
-                if 'http' in service_name or port_id in ('80', '443', '8080', '8443'):
-                    protocol = 'https' if port_id in ('443', '8443') else 'http'
-                    urls.add(f"{protocol}://{ip}:{port_id}")
+                # Logic to determine protocol
+                # Note: Nmap often labels SSL-wrapped services as 'https' or 'ssl/http'
+                if 'http' in service_name or 'ssl' in service_name or port_id in ('80', '443', '8080', '8443'):
+                    protocol = 'https' if (port_id in ('443', '8443') or 'ssl' in service_name) else 'http'
+
+                    # Deduplicate default ports for cleaner URLs
+                    if (protocol == 'http' and port_id == '80') or (protocol == 'https' and port_id == '443'):
+                        urls.add(f"{protocol}://{target}")
+                    else:
+                        urls.add(f"{protocol}://{target}:{port_id}")
+
     except Exception as e:
         print(f"[!] Error parsing Nmap XML: {e}")
     return list(urls)
@@ -107,6 +124,8 @@ def setup_webdriver(wait_time, browser_name, proxy):
         options.add_argument("--headless=new")
         if proxy:
             options.add_argument(f'--proxy-server={proxy}')
+            options.add_argument("--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1")
+            options.add_argument("--disable-async-dns")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-extensions")
@@ -147,8 +166,8 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
             proxies = None
             if proxy_config:
                 proxies = {
-                    "http": proxy_config,
-                    "https": proxy_config,
+                    "http": proxy_config.replace("socks5://", "socks5h://"),
+                    "https": proxy_config.replace("socks5://", "socks5h://"),
                 }
 
             # 2. Get HTTP Response Headers using the Session
@@ -232,7 +251,7 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
                 URL_COUNT_COMPLETED += 1
 
         except (Timeout, ConnectionError, SSLError, ProxyError) as e:
-            error_summary = "SSL connection timeout."
+            error_summary = f"Connection Error: {e} "
             status_code = "TIMEOUT"
 
             if verbose:
