@@ -38,7 +38,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def print_progress(total):
     """Prints the real-time progress meter to the console."""
-    # The carriage return '\r' moves the cursor to the start of the line
     with COUNTER_LOCK:
         print(
             f"[*] ⏳ Processing: Total: {total} | Completed: {URL_COUNT_COMPLETED} | Failed: {URL_COUNT_FAILED}",
@@ -47,8 +46,6 @@ def print_progress(total):
         )
 
 # --- Helper Functions ---
-
-from lxml import etree
 
 def get_nmap_urls(nmap_xml_file):
     """Extracts HTTP/HTTPS URLs from an Nmap XML file, prioritizing FQDNs."""
@@ -63,7 +60,6 @@ def get_nmap_urls(nmap_xml_file):
             ip = ip_list[0]
 
             # 2. Try to get the FQDN (prioritizing 'user' or 'PTR' types if available)
-            # This grabs the first name found in the <hostnames> block
             hostnames = host.xpath('./hostnames/hostname/@name')
             target = hostnames[0] if hostnames else ip
 
@@ -73,7 +69,6 @@ def get_nmap_urls(nmap_xml_file):
                 service_name = service_list[0] if service_list else ""
 
                 # Logic to determine protocol
-                # Note: Nmap often labels SSL-wrapped services as 'https' or 'ssl/http'
                 if 'http' in service_name or 'ssl' in service_name or port_id in ('80', '443', '8080', '8443'):
                     protocol = 'https' if (port_id in ('443', '8443') or 'ssl' in service_name) else 'http'
 
@@ -144,9 +139,7 @@ def setup_webdriver(wait_time, browser_name, proxy):
     return driver
 
 def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, render_delay=1.0, verbose=False, network_timeout=10):
-    """
-    Processes a single URL using a recycled WebDriver instance from the global pool.
-    """
+    """Processes a single URL using a recycled WebDriver instance from the global pool."""
     global URL_COUNT_COMPLETED, URL_COUNT_FAILED
     driver = None
     error_summary = "Unknown Error"
@@ -214,18 +207,11 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
 
             # Use configurable time for the final mandatory render buffer
             time.sleep(render_delay)
-            # ---------------------------------------------------------------------
             render_time = f"{(time.time() - start_render):.2f}s"
 
             # 4. Capture Screenshot
-
-            # --- FILENAME FIX START ---
-            # Truncate the URL at the first '?' to remove query parameters
             filename_base = final_url.split('?')[0]
-
-            # Sanitize the base URL for use as a filename
             safe_filename = filename_base.replace("://", "_").replace("/", "_").replace(":", "-").replace("?", "_").replace("#","")
-            # --- FILENAME FIX END ---
 
             screenshot_path = os.path.join(report_dir, f"{safe_filename}.png")
             driver.save_screenshot(screenshot_path)
@@ -238,7 +224,6 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
                 padded_output = f"\r{status_msg:<{VERBOSITY_LINE_WIDTH}}\n"
                 print(padded_output, end='', flush=True)
                 print_progress(URL_COUNT_TOTAL)
-            # ---------------------------------------
 
             # 5. Store Result (Success)
             GLOBAL_REPORT_DATA.append({
@@ -293,11 +278,9 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
                 URL_COUNT_FAILED += 1
 
         finally:
-            # 1. Clean up temporary HTML file if created
             if temp_html_path and os.path.exists(temp_html_path):
                 os.remove(temp_html_path)
 
-            # 2. Release driver back to pool
             if driver:
                 try:
                     driver.get("about:blank")
@@ -305,7 +288,6 @@ def capture_url_recycled(url, report_dir, proxy_config=None, wait_time=15, rende
                     pass
                 DRIVER_POOL.put(driver)
 
-            # Ensure progress meter is updated even if verbose is off
             if not verbose:
                 print_progress(URL_COUNT_TOTAL)
 
@@ -313,7 +295,6 @@ def generate_html_report(report_dir, report_data):
     """Generates the final HTML report file."""
     timestamp_str = time.ctime()
 
-    # Determine the report title based on filtering
     report_title = "WappSnap Capture Report (Completed Only)" if len(report_data) < URL_COUNT_TOTAL else "WappSnap Capture Report"
 
     html_content = f"""
@@ -326,38 +307,25 @@ def generate_html_report(report_dir, report_data):
             body {{ font-family: Arial, sans-serif; margin: 20px; }}
             h1 {{ color: #333; }}
 
-            /* --- Table Layout Settings (CRITICAL) --- */
             table {{
                 width: 100%;
                 border-collapse: collapse;
                 margin-top: 20px;
-                table-layout: fixed; /* Ensures column widths are respected */
+                table-layout: fixed;
             }}
             th, td {{
                 border: 1px solid #ddd;
                 padding: 10px;
                 text-align: left;
                 vertical-align: top;
-                word-wrap: break-word; /* Ensures text wraps */
+                word-wrap: break-word;
             }}
             th {{ background-color: #f2f2f2; }}
 
-            /* --- FIXED COLUMN WIDTHS --- */
-            /* 1. Original URL */
             th:nth-child(1), td:nth-child(1) {{ width: 20%; }}
-
-            /* 2. Final URL / Status / Times */
-            th:nth-child(2), td:nth-child(2) {{
-                width: 25%;
-            }}
-
-            /* 3. Screenshot */
+            th:nth-child(2), td:nth-child(2) {{ width: 25%; }}
             th:nth-child(3), td:nth-child(3) {{ width: 35%; }}
-
-            /* 4. HTTP Response Headers */
             th:nth-child(4), td:nth-child(4) {{ width: 20%; }}
-
-            /* --------------------------- */
 
             img {{ max-width: 100%; height: auto; border: 1px solid #ccc; }}
             .headers pre {{ white-space: pre-wrap; word-wrap: break-word; font-size: 0.8em; }}
@@ -379,10 +347,8 @@ def generate_html_report(report_dir, report_data):
             <tbody>
     """
 
-    # Add table rows from the provided report_data list
     for data in report_data:
         header_str = "\n".join([f"{k}: {v}" for k, v in data['headers'].items()])
-
         net_time = data.get('network_time', 'N/A')
         rend_time = data.get('render_time', 'N/A')
 
@@ -411,7 +377,6 @@ def generate_html_report(report_dir, report_data):
     </html>
     """
 
-    # Save the report
     report_filename = "report_completed.html" if len(report_data) < URL_COUNT_TOTAL else "report.html"
     report_path = os.path.join(report_dir, report_filename)
 
@@ -438,9 +403,14 @@ def main():
     parser.add_argument("--browser", default="chrome", choices=["chrome", "firefox"],
                         help="Specify the WebDriver browser to use (default: chrome).")
 
-    # NEW: Completed-only report flag
     parser.add_argument("--completed-only", action="store_true",
                         help="Limits the final HTML report to only include URLs that successfully generated a screenshot.")
+
+    # Added output directory and prefix arguments
+    parser.add_argument("--output-dir", default=REPORTS_DIR,
+                        help=f"Directory to save report subfolders (default: '{REPORTS_DIR}').")
+    parser.add_argument("--output-prefix", default="WappSnap_Run",
+                        help="Custom prefix for the report directory name (default: 'WappSnap_Run').")
 
     parser.add_argument("--threads", type=int, default=MAX_THREADS, help=f"Number of threads to use (default: {MAX_THREADS}).")
     args = parser.parse_args()
@@ -487,10 +457,11 @@ def main():
             print(f"[!] FATAL: Could not initialize {args.browser} WebDriver instance. Check if the required driver is installed and in your PATH. Error: {e}")
             return
 
-    # 3. Create Report Directory
+    # 3. Create Report Directory using --output-prefix and --output-dir
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    report_subdir = f"WappSnap_Run_{timestamp}"
-    full_report_path = os.path.join(REPORTS_DIR, report_subdir)
+    prefix = args.output_prefix.strip() if args.output_prefix else "WappSnap_Run"
+    report_subdir = f"{prefix}_{timestamp}"
+    full_report_path = os.path.join(args.output_dir, report_subdir)
     os.makedirs(full_report_path, exist_ok=True)
     print(f"[*] Report files will be saved in: {full_report_path}")
 
@@ -511,7 +482,7 @@ def main():
         futures = [executor.submit(capture_url_recycled, url, full_report_path,
                                     args.proxy, args.wait_time, args.render_delay,
                                     args.verbose, args.network_timeout) for url in urls]
-        for _ in futures: pass # Wait for all to complete
+        for _ in futures: pass
 
     monitor_thread.join()
 
@@ -527,14 +498,12 @@ def main():
     end_time = time.time()
 
     # 6. Generate Final Report
-
-    # Filter the report data if the --completed-only flag is set
     report_data_to_use = GLOBAL_REPORT_DATA
     if args.completed_only:
         print(f"[*] Filtering report data: Only including {URL_COUNT_COMPLETED} successful captures...")
         report_data_to_use = [data for data in GLOBAL_REPORT_DATA if data['screenshot_path'] != 'N/A']
 
-    generate_html_report(full_report_path, report_data_to_use) # Pass the filtered list
+    generate_html_report(full_report_path, report_data_to_use)
 
     print(f"[*] Total execution time: {end_time - start_time:.2f} seconds.")
 
